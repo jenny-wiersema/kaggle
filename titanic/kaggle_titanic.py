@@ -15,9 +15,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr
 import seaborn as seabornInstance 
+import random
 from sklearn.model_selection import train_test_split 
 from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LogisticRegression
 from sklearn import metrics
+
+from utils import linear_review, sigmoid, create_features
 
 #################
 ### load data ###
@@ -39,31 +43,181 @@ from sklearn import metrics
 dat = pd.read_csv('train.csv', index_col = 'PassengerId')
 dat.columns = [c.lower() for c in dat.columns] ## set all column names to lowercase
 
+dat_test = pd.read_csv('test.csv', index_col = 'PassengerId')
+dat_test.columns = [c.lower() for c in dat_test.columns] ## set all column names to lowercase
+
+
 #############################
 ### initial data overview ###
 #############################
 
-print('Percentage of Survivors:' + str(round(dat.survived.mean(),3)*100) + '%')
+print('Percentage of Survivors: ' + str(round(dat.survived.mean(),3)*100) + '%')
 
 ## Ticket Class ##
-
+print('')
 print('Percentage of Survivors by Class:')
 print(round(dat.groupby(by = 'pclass').survived.mean()*100,1))
 
-# a passenger is more likely to survive if they have a higher class ticket 
+## Name ##
+
+titles = ['Miss.', 'Mr.', 'Mrs', 'Master.', 'Rev.', 'Dr.', 'Ms.', 'Mme.','Don.',
+          'Major.','Sir.','Mlle.','Col.', 'Capt.', 'Countess', 'Jonkheer.']
+passenger_titles = pd.DataFrame(index = dat.index)
+dat['title'] = 'Other'
+
+for t in titles:
+    passenger_titles[t] = [int(t in d) if type(d) == str else 0 for d in dat['name']]
+    dat.loc[passenger_titles[t] == 1, 'title'] = t
+
+print('')
+print('Percentage of Survivors by Title')
+print(dat[['survived', 'title']].groupby(by = 'title').agg(['mean','count']))
+
 
 ## Sex ##
-
+print('')
 print('Percentage of Survivors by Sex:')
-print(round(dat.groupby(by = 'sex').survived.mean()*100,1))
+print(dat[['survived','sex']].groupby(by = 'sex').agg(['mean','count']))
 
 # a passenger is more likely to survive if they are female
 
 ## Age ##
 
-I = ~np.isnan(dat.age)
+age_stats = linear_review(dat,'age')
 
-X_train = pd.DataFrame(dat['age'].loc[I])
-Y_train = pd.DataFrame(dat['survived'].loc[I])
-regressor = LinearRegression()  
-regressor.fit(X_train, Y_train)
+## Siblings/Spouses ##
+
+sibsp_stats = linear_review(dat,'sibsp')
+
+## Parents/Children ##
+
+parch_stats = linear_review(dat, 'parch')
+
+## Fare ##
+
+fare_stats = linear_review(dat, 'fare')
+
+## Cabin ##
+cabin_binary = pd.DataFrame(dat['survived'])
+cabin_binary['cabin'] = [type(d) == str for d in dat['cabin']]
+print('')
+print('Percentage of Survivors by Cabin:')
+print(round(cabin_binary.groupby(by = 'cabin').survived.mean()*100,1))
+
+cabins = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'T']
+cabin_floors = pd.DataFrame(index = cabin_binary.index)
+dat['cabin_floor'] = 'N/A'
+
+for c in cabins:
+    cabin_floors[c] = [int(c in d) if type(d) == str else 0 for d in dat['cabin']]
+    dat.loc[cabin_floors[c] == 1, 'cabin_floor'] = c
+
+print('')
+print('Percentage of Survivors by Cabin Floor')
+print(round(dat.groupby(by = 'cabin_floor').survived.mean()*100,1))
+
+## Embarkation Location ##
+
+print('')
+print('Percentage of Survivors by Embarkation Location:')
+print(round(dat.groupby(by = 'embarked').survived.mean()*100,1))
+
+## Overall ##
+stats_all = age_stats.append(sibsp_stats).append(parch_stats).append(fare_stats)
+print('')
+print('Regression Statistics')
+print(round(stats_all,3))
+
+
+'''
+What I learned:
+    - Survival is 38.4%
+    - Survival is higher for 1st or 2nd class passengers
+    - Women are 3-4 times more likely to survive than men
+    - People embarking in Cherbourg are more likely to survive
+    - Younger people are more likely to survive than older, but t-stats ~= 2
+    - number of siblings/spouses has t-stat of ~1, so not very much information linearly
+    - more parents/children on board mean a higher likelihood of surviving
+    - having a cabin means you're twice as likely to survive
+    - a higher fare has a much higher likelihood of survival 
+    - no Rev. survived
+'''
+
+   
+###########################
+### Logistic Regression ###
+###########################
+
+train_features = ['sex','pclass','name','age','sibsp','parch','fare','cabin','embark']
+
+y = dat['survived']
+
+
+### model selection - regularization ###
+
+# subset data into test & train
+random.seed(0)
+I = np.arange(dat.shape[0])
+random.shuffle(I)
+test_size = int(np.floor([dat.shape[0]*0.2]))
+
+C_check = [0.03, 0.1, 0.3, 1, 3, 10, 30] ## inverse of regularization parameter
+score_reg = pd.DataFrame(index = C_check, columns = ['train','test'])
+
+
+all_features = create_features(dat, train_features)
+
+for c in C_check:
+    log_reg = LogisticRegression(C = c)
+    score_train = []
+    score_test = []
+    for i in np.arange(5):
+        ## subset data into testing and training data, using K-folds with K=5
+        I_test = I[test_size*i:test_size*(i+1)]
+        I_test.sort()
+        I_train = np.setdiff1d(I, I_test)
+
+        ## scale data
+        X_train = all_features.iloc[I_train]
+        mu = X_train.mean()
+        sigma = X_train.std()
+        sigma[sigma == 0] = 1 #avoid dividing by 0 for cases where there is no stdev
+        X_train = (X_train - mu)/sigma
+        X_test = (all_features.iloc[I_test] - mu)/sigma
+        
+        ## run regression
+        log_reg.fit(X_train, y.iloc[I_train])
+        score_train.append(log_reg.score(X_train, y.iloc[I_train]))
+        score_test.append(log_reg.score(X_test, y.iloc[I_test]))
+        
+    score_reg.loc[c,'train'] = np.array(score_train).mean()
+    score_reg.loc[c,'test']  = np.array(score_test).mean()
+        
+fig, ax = plt.subplots()
+ax.plot(np.arange(len(C_check)), score_reg[['train','test']])
+ax.set(title='Score by Regularization Parameter', xlabel = 'Regularization Parameter')
+ax.legend(['Train','Test'])
+
+
+## See which features result in a higher score, assuming only one set of features ##
+
+log_scores = pd.DataFrame(index = train_features, columns = ['score_1', 'score_m1'])
+
+for f in train_features:
+    # logistic regression, only have 1 feature
+    feat = create_features(dat, f)
+    log_reg = LogisticRegression()
+    log_reg.fit(feat, y)
+    log_scores.loc[f,'score_1'] = log_reg.score(feat, y)
+    
+    # logistic regression, all but 1 feature
+    feat_list = train_features[:]
+    feat_list.remove(f)
+    feat = create_features(dat, feat_list)
+    log_reg = LogisticRegression()
+    log_reg.fit(feat, y)
+    log_scores.loc[f,'score_m1'] = log_reg.score(feat, y)    
+
+
+
+    

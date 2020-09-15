@@ -162,6 +162,8 @@ random.shuffle(I)
 test_size = int(np.floor([dat.shape[0]*0.2]))
 
 C_check = [0.03, 0.1, 0.3, 1, 3, 10, 30] ## inverse of regularization parameter
+xtick_labels = [str(c) for c in C_check]
+xtick_labels.insert(0,'0')
 score_reg = pd.DataFrame(index = C_check, columns = ['train','test'])
 
 
@@ -195,28 +197,138 @@ for c in C_check:
         
 fig, ax = plt.subplots()
 ax.plot(np.arange(len(C_check)), score_reg[['train','test']])
-ax.set(title='Score by Regularization Parameter', xlabel = 'Regularization Parameter')
+ax.set(title='Score by Regularization Parameter', 
+       xlabel = 'Regularization Parameter',
+       xticklabels = xtick_labels)
 ax.legend(['Train','Test'])
 
+''' Both test & train scores are fairly insensitive to regularization parameter '''
 
-## See which features result in a higher score, assuming only one set of features ##
+### predict test model ###
 
-log_scores = pd.DataFrame(index = train_features, columns = ['score_1', 'score_m1'])
+
+## scale data
+X_train = create_features(dat, train_features)
+mu = X_train.mean()
+sigma = X_train.std()
+sigma[sigma == 0] = 1 #avoid dividing by 0 for cases where there is no stdev
+X_train = (X_train - mu)/sigma
+X_test = create_features(dat_test, train_features)
+X_test = (X_test[X_train.columns] - mu)/sigma
+
+## run regression
+log_reg = LogisticRegression(C = 0.1)
+log_reg.fit(X_train, y)
+
+y_output = pd.DataFrame(log_reg.predict(X_test), index = X_test.index, 
+                        columns = ['Survived'])
+y_output.to_csv('candidate.csv')
+
+
+##############################
+### Evalulate Coefficients ###
+##############################
+
+coef = pd.DataFrame(log_reg.coef_.transpose(), index = X_train.columns, columns = ['coef'])
+coef.plot.bar()
+
+######################
+### Error Analysis ###
+######################
+
+## identify which passengers have an error
+
+y_train = log_reg.predict(X_train)
+I_err = y != y_train
+
+y_err = pd.DataFrame(log_reg.predict_proba(X_train), index = X_train.index)
+y_err = y_err.loc[I_err]
+
+
+
+###################################
+### Evalulate removing features ###
+###################################
+
+train_features = ['sex','pclass','name','age','sibsp','parch','fare','cabin','embark']
+reg_param = 0.1
+scores_feat = pd.DataFrame(index = train_features, columns = 
+                          ['only1_train','only1_test','minus1_train', 'minus1_test'])
+y = dat['survived']
+
+
+# subset data into test & train
+random.seed(0)
+I = np.arange(dat.shape[0])
+random.shuffle(I)
+test_size = int(np.floor([dat.shape[0]*0.2]))
+
 
 for f in train_features:
     # logistic regression, only have 1 feature
     feat = create_features(dat, f)
-    log_reg = LogisticRegression()
-    log_reg.fit(feat, y)
-    log_scores.loc[f,'score_1'] = log_reg.score(feat, y)
-    
+    log_reg = LogisticRegression(C = reg_param)
+    score_train = []
+    score_test = []
+    for i in np.arange(5):
+        ## subset data into testing and training data, using K-folds with K=5
+        I_test = I[test_size*i:test_size*(i+1)]
+        I_test.sort()
+        I_train = np.setdiff1d(I, I_test)
+
+        ## scale data
+        X_train = feat.iloc[I_train]
+        mu = X_train.mean()
+        sigma = X_train.std()
+        sigma[sigma == 0] = 1 #avoid dividing by 0 for cases where there is no stdev
+        X_train = (X_train - mu)/sigma
+        X_test = (feat.iloc[I_test] - mu)/sigma
+        
+        ## run regression
+        log_reg.fit(X_train, y.iloc[I_train])
+        score_train.append(log_reg.score(X_train, y.iloc[I_train]))
+        score_test.append(log_reg.score(X_test, y.iloc[I_test]))
+        
+    scores_feat.loc[f,'only1_train'] = np.array(score_train).mean()
+    scores_feat.loc[f,'only1_test']  = np.array(score_test).mean()
+        
     # logistic regression, all but 1 feature
     feat_list = train_features[:]
     feat_list.remove(f)
     feat = create_features(dat, feat_list)
-    log_reg = LogisticRegression()
-    log_reg.fit(feat, y)
-    log_scores.loc[f,'score_m1'] = log_reg.score(feat, y)    
+    log_reg = LogisticRegression(C = reg_param)
+    score_train = []
+    score_test = []
+    for i in np.arange(5):
+        ## subset data into testing and training data, using K-folds with K=5
+        I_test = I[test_size*i:test_size*(i+1)]
+        I_test.sort()
+        I_train = np.setdiff1d(I, I_test)
+
+        ## scale data
+        X_train = feat.iloc[I_train]
+        mu = X_train.mean()
+        sigma = X_train.std()
+        sigma[sigma == 0] = 1 #avoid dividing by 0 for cases where there is no stdev
+        X_train = (X_train - mu)/sigma
+        X_test = (feat.iloc[I_test] - mu)/sigma
+        
+        ## run regression
+        log_reg.fit(X_train, y.iloc[I_train])
+        score_train.append(log_reg.score(X_train, y.iloc[I_train]))
+        score_test.append(log_reg.score(X_test, y.iloc[I_test]))
+        
+    scores_feat.loc[f,'minus1_train'] = np.array(score_train).mean()
+    scores_feat.loc[f,'minus1_test']  = np.array(score_test).mean()
+    
+    
+fig, ax = plt.subplots()
+ax.plot(np.arange(len(C_check)), score_reg[['train','test']])
+ax.set(title='Score by Regularization Parameter', 
+       xlabel = 'Regularization Parameter',
+       xticklabels = xtick_labels)
+ax.legend(['Train','Test'])
+
 
 
 

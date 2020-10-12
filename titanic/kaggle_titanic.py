@@ -19,6 +19,7 @@ import random
 from sklearn.model_selection import train_test_split 
 from sklearn.linear_model import LinearRegression
 from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import cross_val_score
 from sklearn import metrics
 
 from utils import linear_review, sigmoid, create_features

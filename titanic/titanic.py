@@ -38,73 +38,17 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import OrdinalEncoder
 from sklearn.svm import SVC
 
-from titanic_utils import cm_dataframe, corr_heatmap, plot_ROC, precision_recall, \
-    preprocess_features, review_model \
+from titanic_utils import bin_analysis, cm_dataframe, corr_heatmap, linear_review, \
+    name_analysis, plot_hist, plot_ROC,\
+    precision_recall, preprocess_features, review_model, survival_plot
 
-sns.set_style('white')
-
-#################
-### load data ###
-#################
-
-## passengerid: index
-## survived: Binary, 0 = No, 1 = Yes. The value to be predicted
-## pclass: ticket class, {1,2,3}
-## name: name of passenger
-## sex: sex of passenger, {female, male}
-## age: age of passenger, float
-## sibsp: number of siblings/spouses on titanic. integer
-## parch: number of parents/children on titanic. integer
-## ticket: ticket number
-## fare: passenger fare, float
-## cabin: cabin number
-## embarked: port of embarkation, C = Cherbourg, Q = Queenstown, S = Southamcpton
-
-
-## training ##
-dat = pd.read_csv('train.csv', index_col = 'PassengerId')
-dat.columns = [c.lower() for c in dat.columns] ## set all column names to lowercase
-
-y = dat['survived']
-dat = dat.drop(columns = 'survived')
-
-## testing ##
-dat_test = pd.read_csv('test.csv', index_col = 'PassengerId')
-dat_test.columns = [c.lower() for c in dat_test.columns] ## set all column names to lowercase
-
-
-###########################
-### initial data review ###
-###########################
-
-dat.info()
-
-## review numeric features ##
-
-dat_summary = dat.describe()
-
-dat.hist(bins=50, figsize=(20,15))
-
-corr_heatmap(dat.corr())
-
-scatter_matrix(dat[dat_summary.columns], figsize=(8, 8))
-
-## review non numeric features ##
-
-cols = list(set(dat.columns) - set(dat_summary.columns))
-
-for c in cols:
-    print('\n' + c.upper() + '\n')
-    print(dat[c].value_counts())
-    input('Press Enter to continue...')
-
-    
-#######################
-### preprocess data ###
-#######################
+############################
+### feature_construction ###
+############################
 
 dat_features = preprocess_features(dat)
     
+
 ###########################
 ### logistic regression ###
 ###########################
@@ -269,3 +213,87 @@ cm_ensemble_soft = cm_dataframe(y, voting_clf_soft.predict(dat_features))
 output = pd.DataFrame(y_ensemble_soft, index = dat_test.index, columns = ['Survived'])
 output.index.name = 'PassengerId'
 output.to_csv('candidate_ensemble_soft.csv')
+
+
+########################
+### Feature Analysis ###
+########################
+
+## using the random forest model ##
+
+
+feature_groups = 3*['pclass'] + 5*['name'] + ['sex'] + 4*['age'] + 3*['sibsp'] + \
+    3*['parch'] + 4*['fare'] + 8*['cabin'] + 3*['embarked']
+
+feat_imp = pd.DataFrame(forest_clf.feature_importances_, 
+                        index = [feature_groups, dat_features.columns],
+                        columns = ['Importance'])
+
+feat_imp_agg = feat_imp.sum(level = 0).sort_values(by = 'Importance', ascending = False)
+
+
+## remove 3 feature groups with lowest importance and rerun analysis ##
+
+feat_imp_agg[-1:].index
+
+feature_subset = dat_features.copy(deep = True)
+
+feature_subset.drop(feat_imp.loc[feat_imp_agg[-3:].index].droplevel(level = 0).index, 
+                    axis = 1, inplace = True)
+
+
+forest_clf2 = RandomForestClassifier(n_estimators=100,random_state = 42)
+
+forest_hparams = [{'n_estimators':[10, 30, 100, 300, 1000]}]
+
+forest_grid_search = GridSearchCV(forest_clf2, forest_hparams, cv = 5, scoring = 'f1')
+
+forest_grid_search.fit(feature_subset, y)
+
+forest_clf2 = forest_grid_search.best_estimator_
+
+forest_clf2.fit(feature_subset, y)
+
+
+cm_forest2 = review_model(forest_clf2, feature_subset, y, 'Random Forest')
+
+
+
+######################
+### Error Analysis ###
+######################
+
+## using the random forest model ##
+
+
+y_predict = forest_clf.predict(dat_features)
+
+err_idx = y != y_predict
+
+predict_prob = forest_clf.predict_proba(dat_features)
+
+predict_prob = pd.DataFrame(predict_prob[err_idx,:], 
+                            index = dat_features.index[err_idx], 
+                            columns = ['0','1'])
+
+predict_prob['max_prob'] = predict_prob.max(axis = 1)
+
+predict_prob.sort_values(by = 'max_prob', ascending = False, inplace = True)
+
+
+
+n = predict_prob.index[6]
+
+print(predict_prob.loc[n])
+
+dat.loc[n]
+
+
+
+
+
+
+
+
+
+

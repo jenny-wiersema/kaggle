@@ -1,0 +1,293 @@
+\documentclass[12pt, letterpaper]{article}
+
+% Formatting
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage[titletoc,title]{appendix}
+
+% Math
+% https://www.overleaf.com/learn/latex/Mathematical_expressions
+% https://en.wikibooks.org/wiki/LaTeX/Mathematics
+\usepackage{amsmath,amsfonts,amssymb,mathtools}
+
+% Images
+% https://www.overleaf.com/learn/latex/Inserting_Images
+% https://en.wikibooks.org/wiki/LaTeX/Floats,_Figures_and_Captions
+\usepackage{graphicx,float}
+
+% Tables
+% https://www.overleaf.com/learn/latex/Tables
+% https://en.wikibooks.org/wiki/LaTeX/Tables
+
+% Algorithms
+% https://www.overleaf.com/learn/latex/algorithms
+% https://en.wikibooks.org/wiki/LaTeX/Algorithms
+\usepackage[ruled,vlined]{algorithm2e}
+\usepackage{algorithmic}
+
+% Code syntax highlighting
+% https://www.overleaf.com/learn/latex/Code_Highlighting_with_minted
+\usepackage{minted}
+\usemintedstyle{borland}
+
+% References
+% https://www.overleaf.com/learn/latex/Bibliography_management_in_LaTeX
+% https://en.wikibooks.org/wiki/LaTeX/Bibliography_Management
+\usepackage{biblatex}
+\addbibresource{references.bib}
+
+% Title content
+\title{Logistic Regression Review}
+\author{Jennifer Ahlport}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+% Abstract
+\begin{abstract}
+    Coming soon...
+\end{abstract}
+
+% Introduction and Overview
+\section{Introduction}
+When I started looking at the Kaggle introductory Titanic problem, I saw many direction to take this classification problem. In my first pass at the problem, I looked into how different classification models would compare, and got decent results. For this, I wanted to dive into how well a logistic regression would do when combined with more advanced techniques. The goal of this model is to predict whether or not a passenger survives based on their features. 
+
+
+\section{Data Review}
+The first step with any machine learning problem is to understand the data. There are 891 instances in the training data set, with 10 different features for each instance. 
+
+\begin{enumerate}
+	\item Ticket Class (pclass): 1, 2, or 3
+	\item Name (name): Full name of the passenger, including titles
+	\item Sex (sex): Male or Female
+	\item Age (age): Age of the passenger, in years, between 0.42 and 80. Null for 177 instances in training set. 
+	\item Siblings/Spouses (sibsp): An integer value of the number of siblings or spouses of the passenger that are on the Titanic, between 0 and 8.
+	\item Parents/Children (parch): An integer value of the number of parents/children of the passenger that are on the Titanic, between 0 and 6. 
+	\item Ticket Number (ticket): A non-standardized string containing the ticket number. 
+	\item Passenger Fare (fare): Passenger fare, float between 0 and 512.3292. 
+	\item Cabin Number (cabin): Passenger cabin number, null for 687 instances in training set. Some instances have multiple cabin numbers listed.  
+	\item Port of Embarkation (embarked): Classes include Cherbourg (C), Queenstown (Q), and Southampton (S), null for 2 instances in training set. 
+\end{enumerate}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\linewidth]{data_scatterplot.png}
+    \caption{Figure shows a histogram for each numerical feature on the diagonal, and a scatterplot between each feature in the off-diagonals.}
+    \label{fig:data_scatter}
+\end{figure}
+
+
+Figure~\ref{fig:data_scatter} provides an overview of the numerical features, pclass, age, sibsp, parch and fare and their relationship with the other features. Given the clustering of data, it is hard to see any strong correlation between the features. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\linewidth]{data_heatmap.png}
+    \caption{Correlation between the numerical features in the training data. }
+    \label{fig:data_heatmap}
+\end{figure}
+
+Figure~\ref{fig:data_heatmap} shows the correlation between the numerical features in the training data. In order to understand the data better, I've dug into some of the larger magnitude correlations. Passenger class and fare have a strong negative correlation (-0.55). This makes intuitive sense as tickets in the first class are expected to cost more than tickets in third class. The next largest correlation magnitude is the positive correlation between the number of Parents/Children and the Number of Siblings/Spouses, 0.41. As seen in Figure~\ref{fig:sibsp_prob} and Figure~\ref{fig:parch_prob}, most passengers have no relatives on the boat with them, which is reflected by this high correlation. The next highest magnitude of correlation is between age and passenger class at -0.37. This states that those who are older typically travel in first class, while those who are younger were traveling in third class. This most likely represents the wealth difference between those who are older and those who are younger. 
+
+\section{Feature Construction}
+
+The features included in the data training set need to be adjusted before they can be used in a classification model.  
+
+\subsection{Ticket Class}
+
+The passenger class data is broken up into three categories, 1, 2 and 3, denoting which class of ticket the passenger bought. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\linewidth]{pclass_survival.png}
+    \caption{Survival by passenger class, with the counts for each category denoted in (\#) in the x label. }
+    \label{fig:pclass_prob}
+\end{figure}
+
+Figure~\ref{fig:pclass_prob} shows the probability of survivial broken down by the different passenger classes, where survival is highest in first class and goes down for passengers in the second and third classes. Although there is a relationship between the passenger class and the probability of survival, it is not a linear relationship - the \(R^2\) is only 0.11. Instead, I chose to transform the pclass feature into three boolean category features using the OneHotEncoder function to remove the numerical tie between the categories. 
+
+\subsection{Name}
+
+The name feature contains the actual names of the passengers on the titanic. Given that these are unique, there is no pattern that can be discerned from the names themselves. However, one important pieces of information in the names is the titles of each passenger. Figure~\ref{fig:name_prob1} shows the probability of survival based on the passenger title. The benefit of the title is that it includes information into the sex of the passenger, as well as the class of the passenger. In general, women are more likely to survive than men, and those in a higher socioeconomic class are more likely to survive. It was interesting to see that all passengers with the title "rev" for Reverend, did not survive. This makes intuitive sense - members of the clergy sacrificing themselves so others can be saved. The less common titles are shown in Figure~\ref{fig:name_prob2} and align with the general trend seen above. However, there are too few instances of each name to use them in a predictive model. For the model, I created boolean features for each of the common titles. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\linewidth]{name_survival1.png}
+    \caption{Survival by title for more common titles, with the counts for each category denoted in (\#) in the x label. }
+    \label{fig:name_prob1}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\linewidth]{name_survival2.png}
+    \caption{Survival by title for less common titles, with the counts for each category denoted in (\#) in the x label. }
+    \label{fig:name_prob2}
+\end{figure}
+
+\subsection{Sex}
+
+Sex is one of the most important factors for determining if a passenger is likely to survive, with women survival probability being four times the rate of men, as seen in Figure~\ref{fig:sex_prob}. Figure~\ref{fig:sex_class_prob} shows the sex breakdown when combined with the passenger class breakdown as well. These two plots show a similar story to the data we've seen before - females are more likely to survive than males, and those in class 1 are more likely to survive than class 2. However, the breakdowns show a noticeable difference between the women in class 2 than the men, where the women in class 2 are almost as likely to survive as the women in class 1, but the men in class 2 are less than half as likely to survive as the men in class 1. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\linewidth]{sex_survival.png}
+    \caption{Survival by passenger sex, with the counts for each category denoted in (\#) in the x label. }
+    \label{fig:sex_prob}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\linewidth]{sex_class_survival.png}
+    \caption{Survival by passenger sex and ticket class, with the counts for each category denoted in (\#) in the x label. }
+    \label{fig:sex_class_prob}
+\end{figure}
+
+I've created two sets of features to handle this. The first is a simple single boolean variable, with 0 for female and 1 for male. The second set of features aggregates the passenger class information with the sex information to create six boolean features aligning with Figure~\ref{fig:sex_class_prob} categories.
+
+\subsection{Age}
+
+The age feature in this data gives the passengers ages in years, and ranges between between 0.42 and 80, with 177 null instances in the training set. Figure ~\ref{fig:age_dist} shows the distribution of the ages of the passengers, with a mean of 29.7 years and a median of 28 years. There is no strong linear relationship between the ages and probability of survival, with an \(R^2\) of 0.006. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\linewidth]{age_dist.png}
+    \caption{Distribution of passenger's ages.}
+    \label{fig:age_dist}
+\end{figure}
+
+Looking at passenger ages binned by decade, seen in Figure~\ref{fig:age_prob}, there is an increase in survival probability for those under 10, but there was not a strong pattern beyond that. Breaking this down by gender, seen in Figure~\ref{fig:age_gender_prob} shows an even stronger pattern. The survival probability is not significantly different by age for female passengers, but male passengers show a significantly higher survival rate in the 0-10 category than any others. This makes sense, given that the overall survival rate for women is higher and children were more likely to be saved than adults. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\linewidth]{age_survival.png}
+    \caption{Survival by passenger age, with the counts for each category denoted in (\#) in the x label. }
+    \label{fig:age_prob}
+\end{figure}
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\linewidth]{age_gender_survival.png}
+    \caption{Survival by passenger age and sex.}
+    \label{fig:age_gender_prob}
+\end{figure}
+
+
+\subsection{Siblings/Spouses}
+
+The 91\% of the passengers had one or fewer siblings or spouses on the titanic with them, as seen in Figure ~\ref{fig:sibsp_prob}. The probability of survival is highest for those with 1 sibling or spouse on board, and it decreases significantly for those with 3+ siblings or spouses, although one cause of that may be the much smaller sample sizes. Due to the sample sizes for passengers with two or great siblings or spouses on board, I've chosen to create 3 sibling/spouse boolean features: 0, 1, and 2+.  
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\linewidth]{sibsp_survival.png}
+    \caption{Survival by the number of parents/childred of passengers, with the counts for each category denoted in (\#) in the x label. }
+    \label{fig:sibsp_prob}
+\end{figure}
+
+
+\subsection{Parents/Children}
+
+Similar to the number of siblings or spouses, 89\% of passengers had one or fewer parents or children on the Titanic with them. The breakdown of parents or children does not show a strong trend, but does show that passengers without parents or children onboard with them had a lower chance of survival. Similar to the siblings and spouses features, I've created three boolean features for counts of 0, 1 and 2+. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\linewidth]{parch_survival.png}
+    \caption{Survival by the number of parents/children of passengers, with the counts for each category denoted in (\#) in the x label. }
+    \label{fig:parch_prob}
+\end{figure}
+
+
+\subsection{Ticket Number}
+
+The ticket numbers do not have a standardized pattern to them, even when conditioned on the port of embarkation. As a result, I am not using them at this time. Additionally, it is unclear how a ticket number would have an intuitive reason for predicting if a passenger survived or not, given that information such as fare, passenger class, and port of embarkation are already accounted for in other features. 
+
+\subsection{Passenger Fare}
+
+Passenger fares are available for all instances in the training data and are heavily skewed to the right, as seen in Figure  \ref{fig:fare_dist}, ranging between 0 and 512, with a mean of 32.2 and a median of 14.45.  
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\linewidth]{fare_dist.png}
+    \caption{Distribution of passenger's fares is heavily skewed to the right.}
+    \label{fig:fare_dist}
+\end{figure}
+
+Breaking the passengers fares into deciles, there is a clear trend showing male passengers who paid more for their ticket are more likely to survive. The trend isn't as pronounced for female passengers. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\linewidth]{fare_gender_survival.png}
+    \caption{Probability of survival based on fare decile.}
+    \label{fig:fare_survival}
+\end{figure}
+
+
+\subsection{Cabin Number}
+
+The Titanic hit the iceberg on the starboard side at 11:40pm and sank in about two hours, with the bow sinking first. As a result, cabin location was very important in determining where the passengers were located when the sinking started. 
+
+There were 687 null instances in the training set for the cabin. Table \ref{tab:cabin} shows the breakdown of cabins defined vs not being defined by passenger class. Most of the passengers in first class have their cabin numbers defined and almost no passengers in third class have the cabin defined. Survival rate is higher for those with the cabin defined, even when conditioned upon the passenger class, shown in Figure~\ref{fig:cabin_prob}. 
+
+\begin{table}[H]
+    \centering
+    \begin{tabular}{rll}
+    Class & Cabin Defined & No Cabin Defined \\
+    \hline
+    1 & 176 & 40 \\
+    2 & 16 & 168 \\
+    3 & 12 & 479
+    \end{tabular}
+    \caption{Provides the count of passengers in each passenger class that have a cabin number defined vs those that have a null value for the cabin number.}
+    \label{tab:cabin}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\linewidth]{cabin_survival1_pclass.png}
+    \caption{Survival by cabin defined or null, with the counts for each category denoted in (\#) in the x label. }
+    \label{fig:cabin_prob}
+\end{figure}
+
+Focusing on just the passengers with a cabin defined, the pattern is less clear. Figure\ref{fig:cabin_side} shows the probability of survival by a passenger with a cabin on the starboard side vs one on the port side and Figure\ref{fig:cabin_deck} show the probability of survival based on deck level, both conditioned on gender. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\linewidth]{cabin_side_gender_survival.png}
+    \caption{Probability of survival as determined by the side of the boat the passenger's cabin was on. }
+    \label{fig:cabin_side}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\linewidth]{cabin_gender_survival.png}
+    \caption{Probability of survival as based on the deck level of the passenger's cabin.}
+    \label{fig:cabin_deck}
+\end{figure}
+
+The patterns indicate that whether a passenger has a cabin defined is a stronger indication of survival than the deck level or side of the boat, but I will be testing features including both a binary feature for the passenger having a cabin or not, as well as the deck level and side of the boat to add a metric to this assumption. 
+
+\subsection{Port of Embarkation}
+
+The embarkation location is broken up into three locations, denoted by the first letter of the city. These are Cherbourg, France (C), Queenstown, Ireland (Q), and Southampton, England (S). 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\linewidth]{embarked_survival.png}
+    \caption{Survival by embarkation location, with the counts for each category denoted in (\#) in the x label. }
+    \label{fig:embarked_prob}
+\end{figure}
+
+There is a difference in the survival based on the port of embarkation, although it is unclear why those boarding in Cherbourg have a higher probability of survival than those entering in Queenstown or Southampton. For the model features, I turned the initial embarked feature into three boolean category features using the OneHotEncoder function.
+
+\section{Initial Candidate Models}
+
+\subsection{Hyperparameter Selection}
+
+\subsection{Feature Importance}
+
+
+\section{Final Candidate Models}
+
+
+\end{document}

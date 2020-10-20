@@ -3,3 +3,5 @@ titanic/candidate_sgd.csv
 titanic/candidate_logistic.csv
 titanic/__pycache__/titanic_utils.cpython-38.pyc
 titanic/titanic_utils
+*.png
+*.csv

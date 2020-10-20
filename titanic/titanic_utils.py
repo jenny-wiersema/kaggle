@@ -70,6 +70,51 @@ class parse_values(BaseEstimator, TransformerMixin):
 ### functions ###
 #################
 
+def bin_analysis(X, n_bins, strategy = 'quantile'):
+    """
+
+    Discretizes a numerical feature into a series of boolean features
+
+    Inputs
+    ----------
+    X: dataframe 
+        dataframe containing a feature for all instances
+    n_bins: int
+        integer denoting the number of bins used to dicretize the feature
+    strategy : {'uniform', 'quantile', 'kmeans'}, (default='quantile')
+        Strategy used to define the widths of the bins, used in KBinsDiscretizer 
+
+        uniform
+            All bins in each feature have identical widths.
+        quantile
+            All bins in each feature have the same number of points.
+        kmeans
+            Values in each bin have the same nearest center of a 1D k-means
+            cluster.
+        
+
+    Outputs
+    ----------
+    output_X: series
+        series containing the bin number associated with each passenger
+        
+    """    
+
+    pipeline_bin = Pipeline([
+        ('imputer', SimpleImputer(strategy = 'median')),
+        ('bins', KBinsDiscretizer(n_bins = n_bins, encode = 'ordinal', strategy = strategy)),
+        ('onehot', OneHotEncoder(sparse = False)),
+        ])
+        
+    output_X = pd.DataFrame(pipeline_bin.fit_transform(X), index = X.index)
+    
+    output_X = pd.get_dummies(output_X).idxmax(1)
+    
+    output_X.name = X.columns[0]
+        
+    return output_X  
+
+
 def cm_dataframe(y_actual, y_predict):
     """
 
@@ -101,7 +146,7 @@ def cm_dataframe(y_actual, y_predict):
     return cm
 
 
-def corr_heatmap(corr):
+def corr_heatmap(corr, save_plot = False, plot_file = ''):
     """
 
     Plots a lower triangle correlation heatmap 
@@ -109,8 +154,12 @@ def corr_heatmap(corr):
     Inputs
     ----------
     corr: dataframe 
-        dataframe containing a correlation matrix containing Adj Close price data for a single date
-
+        dataframe containing a correlation matrix
+    save_plot: bool
+        if True, saves plot
+    plot_file: str
+        name for plot file
+    
     Outputs
     ----------
     None
@@ -125,7 +174,105 @@ def corr_heatmap(corr):
     # Draw the heatmap with the mask and correct aspect ratio
     sns.heatmap(corr, mask=mask, cmap=red_blue, vmax=1, vmin=-1, center=0,
                 square=True, linewidths=1, cbar_kws={"shrink": .5})
+    
+    if save_plot == True:
+        plt.savefig(plot_file+'.png', bbox_inches = 'tight')
 
+
+def linear_review(X, Y):
+    """
+
+    runs a linear regression between the X and Y data
+    
+    Inputs
+    ----------
+    X: pandas series
+        series containing one feature for all instances
+    Y: pandas series
+        survived/not survived for training data   
+    
+    Outputs
+    ----------
+    output: dataframe
+        dataframe containing metrics for the linear regression between X & Y
+    
+    """    
+    # identify non nan values
+    I = ~np.isnan(X)
+    n = I.sum()
+
+    X_train = pd.DataFrame(X.loc[I])
+    Y_train = pd.DataFrame(Y.loc[I])
+
+    X_bar = X_train.mean()
+
+    lin_reg = LinearRegression()  
+    lin_reg.fit(X_train, Y_train)
+
+    Y_pred = lin_reg.predict(X_train)
+    R2 = lin_reg.score(X_train, Y_train)
+
+    SSR = ((Y_train - Y_pred)**2).sum().values
+
+    std_err = (SSR/(n-2))**0.5*(((X_train - X_bar)**2).sum())**-0.5
+ 
+    # plot predicted survival vs actual survivial, by feature
+    plt.figure(figsize=(6, 3))
+
+    plt.plot(X_train, Y_pred)
+    plt.plot(X_train, Y_train, '*')
+    plt.title('Survival by ' + X.name.capitalize())
+    plt.show()
+    
+    # output 
+    output = pd.DataFrame(index = [X.name])
+    output['intercept'] = lin_reg.intercept_
+    output['slope'] = lin_reg.coef_ 
+    output['R2'] = R2
+    output['std_err'] = std_err.values
+    output['t_stat'] = abs(output['slope']/output['std_err'])
+    
+    return output
+
+
+def name_analysis(X, titles):
+    """
+
+    Parses a series of names and outputs boolean features, which denote 
+    inclusion of the titles value in the name
+
+    Inputs
+    ----------
+    X: dataframe 
+        dataframe containing the name feature for all instances
+    titles: list
+        a list containing strings of all the boolean features
+
+    Outputs
+    ----------
+    output_X: dataframe
+        dataframe containing processed features, with a column for each new 
+        boolean feature
+        
+    """    
+    pipeline_name = Pipeline([
+        ('imputer', SimpleImputer(strategy = 'constant', fill_value = 'nan')),
+        ('parsing_name', parse_values(feature_list = titles)),
+        ])
+
+    output_X = pipeline_name.fit_transform(X)
+    
+    output_X = pd.get_dummies(output_X).idxmax(1)
+    
+    output_X.name = X.columns[0]
+    
+    output_X.index = X.index
+    
+    return output_X     
+
+
+
+      
 
 def plot_ROC(model, X, Y, model_name = ''):
     """
@@ -223,7 +370,6 @@ def precision_recall(model, X, Y, model_name = ''):
     plt.axis([0, 1, 0, 1])
     plt.show()
         
-    
 
 def preprocess_features(dat):
     """
@@ -273,7 +419,7 @@ def preprocess_features(dat):
         ])
     
     pipeline_cabin = Pipeline([
-        ('imputer', SimpleImputer(strategy = 'constant', fill_value = 'nan')),
+        ('imputer', SimpleImputer(strategy = 'constant', fill_value = 'no')),
         ('parsing_name', parse_values(feature_list = cabins)),
         ])
     
@@ -301,6 +447,7 @@ def preprocess_features(dat):
             ('parsing_cabin', pipeline_cabin, ['cabin']), 
             ('oneshot_embarked', pipeline_onehot_embarked, ['embarked']),
         ])
+    
 
     X = full_pipeline.fit_transform(dat)     
         
@@ -319,7 +466,7 @@ def preprocess_features(dat):
     
     return X
 
-                
+
 def review_model(model, X, Y, model_name):
     """
 
@@ -350,15 +497,127 @@ def review_model(model, X, Y, model_name):
     cm = cm_dataframe(Y, model.predict(X))
     
     return cm
+
+
+def plot_hist(X, save_plot = False, plot_file = '', figsize = (6,4)):
+    """
+
+    Creates a histogram for a feature  
+
+    Inputs
+    ----------
+    X: series 
+        pandas series containing a feature for all instances
+    save_plot: bool
+        if True, saves plot
+    plot_file: str
+        name for plot file
+    
+    Outputs
+    ----------
+    None
+    
+    """
+    plot_title = 'Distribution by ' + X.name.capitalize()
+    plt.figure(figsize = figsize)
+    sns.distplot(X)
+    plt.title(plot_title)
+    plt.xlabel(X.name.capitalize())
+    
+    if save_plot == True:
+        plt.savefig(plot_file+'.png', bbox_inches = 'tight')
     
 
-    plot_ROC(model, X, Y, model_name)
 
-    cm = cm_dataframe(Y, model.predict(X))
-    
-    return cm
-    
-    
+def survival_plot(X_all, Y, plot_title = '', save_plot = False, plot_file = '', 
+                  figsize = (5,3), xticks = None):
+    """
 
+    Creates a barplot showing the probability of survival based on a feature value of a passenger
+
+    Inputs
+    ----------
+    X: series 
+        pandas series containing data to aggregate
+    Y: pandas series
+        survived/not survived for training data   
+    plot_title: str
+        title for plot
+    save_plot: bool
+        if True, saves plot
+    plot_file: str
+        name for plot file
+    xticks: list
+        Optional value, list defining xticklabels
+    
+    Outputs
+    ----------
+    None
+    
+    """
+
+    # counts in each category 
+    
+    X_count = pd.DataFrame()
+    prob_surv = pd.DataFrame()
+    
+    if 'Series' in str(type(X_all)):
+        X_all = pd.DataFrame(X_all)
+    
+    
+    for d in np.arange(X_all.shape[1]):
+        X = X_all.iloc[:,d]
+        X_count = pd.concat([X_count, X.value_counts().sort_index()], axis = 1)
+ 
+        # probability of survivial for each category
+        XY = pd.concat([X,Y.loc[X.index]], axis = 1)
+        XY = XY.reset_index()
+        XY = XY.set_index([X.name, 'PassengerId'])
         
+        prob_surv_d = XY.mean(level = 0).sort_index()
+        if X_all.shape[1] > 1:    
+            prob_surv_d.rename(columns={'survived': prob_surv_d.index.name.split('_')[1]},
+                               inplace = True)
+            
+        prob_surv_d.index.name = prob_surv_d.index.name.split('_')[0]
+        prob_surv = pd.concat([prob_surv, prob_surv_d], axis = 1)
+    
+    prob_surv = 100*prob_surv
+    
+    # xticklabels
+    if type(xticks) != list:
+        if type(X_count.index[0]) == 'str': 
+            xticks = [i.capitalize() for i in X_count.index.values]
+        else:
+            xticks = [i for i in X_count.index.values]
+    
+    xticklabels = []
+    
+    if X_count.shape[1] == 1:
+        for i in np.arange(X_count.shape[0]):
+            xticklabels.append(str(xticks[i]) + ' (' + str(X_count.values[i][0]) + ')')
+    else: 
+        xticklabels = xticks
+    
+    # plots
+    fig, ax = plt.subplots(figsize = figsize)
+    prob_surv.plot(kind = 'bar', ax = ax)
+    
+    # ax.bar(np.arange(prob_surv.shape[0]), 100*prob_surv['survived'], width = 0.6)
+    plt.title(plot_title, fontsize = 14, fontweight = 3)
+    plt.xlabel('')
+    plt.xticks(ticks = np.arange(prob_surv.shape[0]), fontsize = 12, 
+               labels = xticklabels, rotation = 0)
+    plt.ylim([0, 100])
+    plt.ylabel('Probability of Survivial (%)', fontsize = 12)
+    if X_all.shape[1] > 1:
+        plt.legend([i.capitalize() for i in list(prob_surv.columns)], fontsize = 10)
+    else: 
+        ax.get_legend().remove()
+    plt.show()
+    if save_plot == True:
+        plt.savefig(plot_file+'.png', bbox_inches = 'tight')
 
+    
+
+    

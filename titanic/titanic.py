@@ -42,6 +42,37 @@ from titanic_utils import bin_analysis, cm_dataframe, corr_heatmap, linear_revie
     name_analysis, plot_hist, plot_ROC,\
     precision_recall, preprocess_features, review_model, survival_plot
 
+
+#################
+### load data ###
+#################
+
+## passengerid: index
+## survived: Binary, 0 = No, 1 = Yes. The value to be predicted
+## pclass: ticket class, {1,2,3}
+## name: name of passenger
+## sex: sex of passenger, {female, male}
+## age: age of passenger, float
+## sibsp: number of siblings/spouses on titanic. integer
+## parch: number of parents/children on titanic. integer
+## ticket: ticket number
+## fare: passenger fare, float
+## cabin: cabin number
+## embarked: port of embarkation, C = Cherbourg, Q = Queenstown, S = Southampton
+
+
+## training ##
+dat = pd.read_csv('train.csv', index_col = 'PassengerId')
+dat.columns = [c.lower() for c in dat.columns] ## set all column names to lowercase
+
+y = dat['survived']
+dat = dat.drop(columns = 'survived')
+
+## testing ##
+dat_test = pd.read_csv('test.csv', index_col = 'PassengerId')
+dat_test.columns = [c.lower() for c in dat_test.columns] ## set all column names to lowercase
+
+
 ############################
 ### feature_construction ###
 ############################

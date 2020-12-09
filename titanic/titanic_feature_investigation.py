@@ -10,7 +10,8 @@ import pandas as pd
 import numpy as np
 
 import matplotlib.pyplot as plt
-import seaborn as sns
+import seaborn as sns; seaborn.set()
+
 from pandas.plotting import scatter_matrix
 
 from sklearn.base import BaseEstimator, TransformerMixin

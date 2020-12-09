@@ -12,6 +12,7 @@ Created on Fri Sep 25 12:55:46 2020
 
 import pandas as pd
 import numpy as np
+import random
 
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -30,10 +31,14 @@ from sklearn.metrics import roc_curve
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import cross_val_predict
 from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import Binarizer
 from sklearn.preprocessing import KBinsDiscretizer
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import OrdinalEncoder
+
+
 
 
 sns.set_style('white')
@@ -65,7 +70,21 @@ class parse_values(BaseEstimator, TransformerMixin):
         return processed
 
 
+class cabin_side(BaseEstimator, TransformerMixin):
+    def __init__(self):
+        self
+    def fit(self, X, y=None):
+        return self
+    def transform(self, X, y=None):
+        output = X.copy()
+        for i, x in enumerate(X):
+            if len(x[0]) > 1:
+                output[i] = ['Port' if int(x[0][-1])%2 else 'Starboard']
+                        
+        return output
     
+
+  
 #################
 ### functions ###
 #################
@@ -235,6 +254,67 @@ def linear_review(X, Y):
     return output
 
 
+def log_reg_MC(X, Y, n_features = 20, C = 1, predict = 'cross_val', X_test = None,
+               seed = 42):
+    """
+
+    Parses a series of names and outputs boolean features, which denote 
+    inclusion of the titles value in the name
+
+    Inputs
+    ----------
+    X: dataframe 
+        dataframe containing all features for the training data set
+    Y: pandas series
+        survived/not survived for training data  
+    n_features: int, default = 20
+        number of features to include in each regression
+    C: float, default = 1
+        regularization parameter used in LogisticRegression function
+    predict: str ['cross_val', 'test']
+        determines if the predicted values will be done using cross validation on the 
+        training data, or using new testing data
+    X_test: default = None
+        if predict = 'test', required to provide a dataframe of all features for the test data set
+    seed: int, default = 20
+        seed
+
+    Outputs
+    ----------
+    y_test: dataframe
+        dataframe containing prediction of survival or not, for training dataset
+        
+    """ 
+        
+    np.random.seed(seed)
+    
+    output = []
+    
+    for i in np.arange(100):
+        cols = random.sample(list(X.columns), n_features)
+        
+        log_reg = LogisticRegression(C = C, max_iter = 1000)
+        
+        if predict == 'cross_val':
+            p = cross_val_predict(log_reg, X[cols], Y, cv = 5, method='predict_proba')
+        elif predict == 'test':
+            log_reg.fit(X[cols], Y)
+            p = log_reg.predict_proba(X_test[cols])
+                            
+        output.append(p[:,1])
+        
+    
+    if predict == 'cross_val':
+        output_index = X.index
+    elif predict == 'test':
+        output_index = X_test.index
+    
+    y_predict = pd.DataFrame([int(i > 0.5) for i in np.array(output).mean(axis = 0)],
+                             index = output_index, columns = ['survived'])
+    
+    return y_predict
+
+
 def name_analysis(X, titles):
     """
 
@@ -271,7 +351,73 @@ def name_analysis(X, titles):
     return output_X     
 
 
+def plot_coefs(X, npos = 0, nneg = 0, figsize = (6,4), plot_title = '',
+               save_plot = False, plot_file = ''):
+    """
 
+    Plots the coeficients with the   
+
+    Inputs
+    ----------
+    X: series 
+        pandas series containing a coefficents from a logistic regression
+    npos: int
+        number of positive coefficients to include in plot
+    nneg: int
+        number of negative coefficients to include in plot
+    figsize: tuple
+        figure size
+    plot_title: str
+        title for plot
+    save_plot: bool
+        if True, saves plot
+    plot_file: str
+        name for plot file
+    
+    Outputs
+    ----------
+    None
+    
+    """
+    X = X.sort_values()
+    X = pd.concat([X[:nneg], X[-npos:]])
+    plt.figure(figsize = figsize)
+    X.plot(kind = 'bar')
+    plt.subplots_adjust(bottom = 0.3)
+    plt.title(plot_title)
+    plt.show()
+    
+    if save_plot == True:
+        plt.savefig(plot_file+'.png', bbox_inches = 'tight')
+
+
+def plot_hist(X, save_plot = False, plot_file = '', figsize = (6,4)):
+    """
+
+    Creates a histogram for a feature  
+
+    Inputs
+    ----------
+    X: series 
+        pandas series containing a feature for all instances
+    save_plot: bool
+        if True, saves plot
+    plot_file: str
+        name for plot file
+    
+    Outputs
+    ----------
+    None
+    
+    """
+    plot_title = 'Distribution by ' + X.name.capitalize()
+    plt.figure(figsize = figsize)
+    sns.distplot(X)
+    plt.title(plot_title)
+    plt.xlabel(X.name.capitalize())
+    
+    if save_plot == True:
+        plt.savefig(plot_file+'.png', bbox_inches = 'tight')
       
 
 def plot_ROC(model, X, Y, model_name = ''):
@@ -389,12 +535,13 @@ def preprocess_features(dat):
     """
     ## feature groups ##
     
-    titles = ['Dr.', 'Rev.', 'Mr.', 'Miss.', 'Mrs']
+    titles = ['Dr.', 'Rev.', 'Mr.', 'Miss.', 'Mrs', 'Master']
     
     cabins = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'T']
     
     embarked = ['C', 'Q', 'S']
     
+
     ## individual pipelines ##
         
     pipeline_onehot = Pipeline([
@@ -423,6 +570,12 @@ def preprocess_features(dat):
         ('parsing_name', parse_values(feature_list = cabins)),
         ])
     
+    pipeline_cabin_side = Pipeline([
+        ('imputer', SimpleImputer(strategy = 'constant', fill_value = 'N')),
+        ('cabin_side', cabin_side()),
+        ('onehot', OneHotEncoder(categories = [['Port', 'Starboard', 'N']], handle_unknown = 'ignore')),
+        ])
+    
     pipeline_ordinal = Pipeline([
         ('imputer', SimpleImputer(strategy = 'constant', fill_value = 'nan')),
         ('ordinal', OrdinalEncoder()),
@@ -430,9 +583,15 @@ def preprocess_features(dat):
     
     pipeline_bin = Pipeline([
         ('imputer', SimpleImputer(strategy = 'median')),
-        ('bins', KBinsDiscretizer(n_bins = 4, encode = 'ordinal', strategy = 'quantile')),
+        ('bins', KBinsDiscretizer(n_bins = 5, encode = 'ordinal', strategy = 'quantile')),
         ('onehot', OneHotEncoder()),
         ])
+    
+    pipeline_age = Pipeline([
+        ('imputer', SimpleImputer(strategy = 'median')),
+        ('bins', Binarizer(threshold = 10)),    
+        ])
+
     
     ## full pipeline ##
     
@@ -440,11 +599,12 @@ def preprocess_features(dat):
             ('oneshot_pclass', pipeline_onehot, ['pclass']),
             ('parsing_name', pipeline_name, ['name']),
             ('ordinal', pipeline_ordinal, ['sex']),
-            ('bins_age', pipeline_bin, ['age']),
+            ('binarizer_age', pipeline_age, ['age']),
             ('imputer_sibsp', pipeline_onehot_cap, ['sibsp']),
             ('imputer_parch', pipeline_onehot_cap, ['parch']),    
             ('bins_fare', pipeline_bin, ['fare']),
             ('parsing_cabin', pipeline_cabin, ['cabin']), 
+            ('parsing_cabin_side', pipeline_cabin_side, ['cabin']),
             ('oneshot_embarked', pipeline_onehot_embarked, ['embarked']),
         ])
     
@@ -452,13 +612,14 @@ def preprocess_features(dat):
     X = full_pipeline.fit_transform(dat)     
         
     feature_names = ['pclass_' + str(i) for i in set(dat['pclass'])] \
-    + [t.lower().replace('.','') for t in titles] \
-    + ['male_female'] \
-    + ['age_q' + str(i) for i in np.arange(1,5)] \
+    + ['name_' + t.lower().replace('.','') for t in titles] \
+    + ['sex_male'] \
+    + ['age_10+'] \
     + ['sibsp_' + i for i in ['0', '1', '2+']] \
     + ['parch_' + i for i in ['0', '1', '2+']] \
-    + ['fare_q' + str(i) for i in np.arange(1,5)] \
+    + ['fare_q' + str(i) for i in np.arange(1,6)] \
     + ['cabin_' + c for c in cabins] \
+    + ['cabin_' + c for c in ['Port', 'Starboard', 'NoCabin']] \
     + ['embarked_' + i for i in embarked]
     
     
@@ -499,34 +660,13 @@ def review_model(model, X, Y, model_name):
     return cm
 
 
-def plot_hist(X, save_plot = False, plot_file = '', figsize = (6,4)):
-    """
 
-    Creates a histogram for a feature  
-
-    Inputs
-    ----------
-    X: series 
-        pandas series containing a feature for all instances
-    save_plot: bool
-        if True, saves plot
-    plot_file: str
-        name for plot file
-    
-    Outputs
-    ----------
-    None
-    
-    """
-    plot_title = 'Distribution by ' + X.name.capitalize()
-    plt.figure(figsize = figsize)
-    sns.distplot(X)
-    plt.title(plot_title)
-    plt.xlabel(X.name.capitalize())
-    
-    if save_plot == True:
-        plt.savefig(plot_file+'.png', bbox_inches = 'tight')
-    
+def sigmoid(x):
+    if type(x) == list:
+        x = np.array(x)
+    g = 1/(1+np.exp(-x))
+    return g
+ 
 
 
 def survival_plot(X_all, Y, plot_title = '', save_plot = False, plot_file = '', 
